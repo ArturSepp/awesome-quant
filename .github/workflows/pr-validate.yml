@@ -1,6 +1,7 @@
 name: Validate PR
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [ main ]
     paths:
@@ -22,26 +23,28 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
-    - uses: astral-sh/setup-uv@v6
-    - uses: actions/setup-python@v5
+    - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3; Node 24
       with:
+        version: '0.12.23'
         python-version: '3.11'
     - name: Install dependencies
-      run: uv sync --no-install-project
-    - name: Fetch base branch
-      shell: bash
-      run: |
-        for delay in 10 30; do
-          if git fetch --depth=1 origin "$GITHUB_BASE_REF"; then
-            exit 0
-          fi
-          sleep "$delay"
-        done
-        git fetch --depth=1 origin "$GITHUB_BASE_REF"
+      run: uv sync --locked --no-install-project
     - name: Validate added README entries
-      run: uv run python scripts/validate_readme.py --diff-from origin/${{ github.base_ref }}
-    - name: Generate static site
-      run: uv run python site/generate.py
+      if: github.event_name == 'pull_request'
+      env:
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        git cat-file -e "${PR_BASE_SHA}^{commit}"
+        uv run --no-sync python scripts/validate_readme.py --diff-from "$PR_BASE_SHA"
+    - name: Validate full README on manual runs
+      if: github.event_name == 'workflow_dispatch'
+      run: uv run --no-sync python scripts/validate_readme.py
+    - name: Generate static site from README
+      run: |
+        if [ -f site/projects.csv ]; then
+          mv site/projects.csv "$RUNNER_TEMP/pr-projects.csv"
+        fi
+        uv run --no-sync python site/generate.py
